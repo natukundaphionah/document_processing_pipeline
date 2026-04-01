@@ -142,7 +142,54 @@ def remove_table_of_contents(text: str) -> str:
         text = re.sub(pattern, "\n", text, flags=re.IGNORECASE | re.DOTALL)
 
     return text
+import re
 
+def remove_dotted_toc(text: str) -> str:
+    """
+    Removes lines that look like table of contents with dots and page numbers.
+    Example lines removed:
+        NYUTE...10
+        SPECIAL ACKNOWLEDGEMENT...12
+        DEDICATION...13
+    Keeps normal text intact.
+    """
+    pattern = r"(?m)^\s*[A-Z0-9\s/&-]+\.{2,}\d+\s*$"
+    pattern = r"^[A-Z][A-Z\s—\-']+\.{2,}\d+\s*$"
+    return re.sub(pattern, "", text, flags=re.MULTILINE)
+    # Explanation:
+    # (?m)              => multiline mode (^ and $ match each line)
+    # ^\s*              => start of line, optional spaces
+    # [A-Z0-9\s/&-]+    => heading text (capital letters, numbers, spaces, /, &, -)
+    # \.{2,}            => two or more dots
+    # \d+               => page number
+    # \s*$              => optional spaces until line end
+
+    return re.sub(pattern, "", text).strip()
+
+def remove_acknowledgements(text: str) -> str:
+    """
+    Removes all Acknowledgements sections, including:
+    - Acknowledgement(s)
+    - SPECIAL ACKNOWLEDGEMENT(S)
+    - ACKNOWLEDGEMENTS AND THANKS
+    - Markdown headings (#, ##) or numbered headings (1., IV.)
+    """
+
+    pattern = r"""
+    (?im)                                   # case-insensitive + multiline
+    ^\s*                                    # start of line
+    (?:\#{1,6}\s*|[\divxlc]+\.\s*)?        # optional markdown # or numbering/roman numeral
+    (?:                                     # match any of the acknowledgement variants
+        Acknowledg(?:e)?ments? |
+        Special\s+Acknowledg(?:e)?ments? |
+        Acknowledg(?:e)?ments?\s+and\s+Thanks
+    )
+    \s*\n                                   # end of heading line
+    .*?                                     # section content (non-greedy)
+    (?=^\s*(?:\#{1,6}\s*|[\divxlc]+\.\s*)|\Z)  # stop at next heading or end of text
+    """
+
+    return re.sub(pattern, "\n", text, flags=re.DOTALL | re.VERBOSE)
 
 def remove_front_matter(text: str) -> str:
     """
@@ -180,11 +227,44 @@ def remove_authors_contributors(text: str) -> str:
 
     return text.strip()
 
+import re
+
+
+import re
+from collections import Counter
+
 def remove_footnotes(text: str) -> str:
-    """Removes footnotes in [^1] format and their definitions."""
-    text = re.sub(r"\[\^\d+\]:.*", "", text)
-    text = re.sub(r"\[\^\d+\]", "", text)
-    return text
+    lines = text.splitlines()
+
+    # Count frequency of each line (to detect repeated headers/footers)
+    line_counts = Counter(line.strip() for line in lines if line.strip())
+
+    cleaned_lines = []
+    total_lines = len(lines)
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+
+        # Skip empty lines
+        if not stripped:
+            continue
+
+        # 1. Remove lines that repeat frequently (likely headers/footers)
+        if line_counts[stripped] > 2:
+            continue
+
+        # 2. Remove lines that are just numbers (page numbers)
+        if re.fullmatch(r"\d+", stripped):
+            continue
+
+        # 3. Remove short lines at the bottom of pages (likely footers)
+        # Heuristic: short + near end of a block
+        if len(stripped) < 50 and re.search(r"\d$", stripped):
+            continue
+
+        cleaned_lines.append(line)
+
+    return "\n".join(cleaned_lines).strip()
 
 
 def remove_publications_section(text: str) -> str:
@@ -286,6 +366,33 @@ def remove_unwanted_sections(text: str) -> str:
 
 import re
 
+def remove_preface(text: str) -> str:
+    """
+    Removes Preface sections in all variations:
+    - PREFACE
+    - Preface IN ENGLISH
+    - # PREFACE
+    - ## Preface
+    - 1. Preface
+    - Preface (any extra words after it)
+    """
+
+    pattern = r"""
+    (?im)                          # ignore case + multiline
+
+    ^\s*                           # start of line
+    (\#*\s*|\d+\.?\s*)?           # optional markdown or numbering
+    PREFACE                       # main keyword
+    [^\n]*                        # anything after (e.g. IN ENGLISH)
+    \n                            # end of heading line
+
+    .*?                           # content of Preface
+
+    (?=^\s*(\#|\d+\.|\w))         # stop at next section heading
+    """
+
+    return re.sub(pattern, "\n", text, flags=re.DOTALL | re.IGNORECASE | re.VERBOSE | re.MULTILINE)
+
 def remove_alphabetical_entries(text: str) -> str:
     """
     Removes glossary or A-Z alphabetical sections from the text.
@@ -339,6 +446,9 @@ def clean_markdown_pipeline(text: str) -> str:
     text = remove_image_urls(text)
     text = remove_table_of_contents(text)
     text = remove_front_matter(text)
+    text = remove_preface(text)
+    text = remove_acknowledgements(text)
+    text = remove_dotted_toc(text)
     text = remove_authors_contributors(text)
     text = remove_unwanted_sections(text)
     text = start_from_abstract_or_intro(text)
