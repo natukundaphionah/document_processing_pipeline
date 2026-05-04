@@ -72,3 +72,11 @@ ewe-Ewe-Bible-(book).pdf - API error occurred: Status 400. Body: {"object":"erro
 ewe-Ewe-Bible-(book).pdf - API error occurred: Status 503 Content-Type "text/plain; charset=UTF-8". Body: upstream connect error or disconnect/reset before headers. reset reason: overflow
 ewe-Ewe-Bible-(book).pdf - API error occurred: Status 400. Body: {"object":"error","message":"This document has 1039 pages, which is more than the maximum allowed of 1000.","type":"document_parser_too_many_pages","param":null,"code":"3730","raw_status_code":400}
 ewe-Ewe-Bible-(book).pdf - API error occurred: Status 400. Body: {"object":"error","message":"This document has 1039 pages, which is more than the maximum allowed of 1000.","type":"document_parser_too_many_pages","param":null,"code":"3730","raw_status_code":400}
+adh-Kigana Kitawo mar’ario.pdf - Page 1 failed: [Errno -3] Temporary failure in name resolution
+adh-Kigana Kitawo mar’ario.pdf - Page 2 failed: [Errno -3] Temporary failure in name resolution
+adh-Kigana Kitawo mar’ario.pdf - Page 3 failed: [Errno -3] Temporary failure in name resolution
+adh-Kigana Kitawo mar’ario.pdf - Page 4 failed: [Errno -3] Temporary failure in name resolution
+pdf - Page 1: [Errno -3] Temporary failure in name resolution
+pdf - Page 2: [Errno -3] Temporary failure in name resolution
+pdf - Page 3: [Errno -3] Temporary failure in name resolution
+pdf - Page 4: [Errno -3] Temporary failure in name resolution

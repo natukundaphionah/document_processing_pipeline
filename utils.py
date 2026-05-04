@@ -126,16 +126,35 @@ def remove_image_urls(text: str) -> str:
 
 import re
 
+import re
+
 def remove_table_of_contents(text: str) -> str:
     """
     Removes table of contents sections from OCR/markdown documents.
     """
 
     patterns = [
+        # Existing patterns (kept as-is)
         r"\n\s*#*\s*\d*\.?\s*Table of Contents\s*\n.*?(?=\n\s*#|\Z)",
         r"\n\s*#*\s*\d*\.?\s*Contents\s*\n.*?(?=\n\s*#|\Z)",
         r"\n\s*TABLE OF CONTENTS\s*\n.*?(?=\n[A-Z][^\n]{0,80}\n|\Z)",
-        r"\n\s*CONTENTS\s*\n.*?(?=\n[A-Z][^\n]{0,80}\n|\Z)"
+        r"\n\s*CONTENTS\s*\n.*?(?=\n[A-Z][^\n]{0,80}\n|\Z)",
+
+        # -----------------------------
+        #  ADDED IMPROVEMENTS BELOW
+        # -----------------------------
+
+        # Chapter TOC lines: Chapter 5 Title 151
+        r"(?m)^\s*chapter\s*\d+.*?\d{1,4}\s*$",
+
+        # Numbered TOC hierarchy: 5.1 Data survey 151
+        r"(?m)^\s*\d+(\.\d+)*\s+[A-Za-z].*?\d{1,4}\s*$",
+
+        # Dotted TOC lines: Title......151
+        r"(?m)^[A-Za-z0-9\s/&,'()\-]+\.{2,}\s*\d+\s*$",
+
+        # Appendix / List entries in TOC style
+        r"(?m)^\s*(appendix|list of|index)\s+.*?\d{1,4}\s*$",
     ]
 
     for pattern in patterns:
@@ -166,6 +185,8 @@ def remove_dotted_toc(text: str) -> str:
 
     return re.sub(pattern, "", text).strip()
 
+import re
+
 def remove_acknowledgements(text: str) -> str:
     """
     Removes all Acknowledgements sections, including:
@@ -178,56 +199,129 @@ def remove_acknowledgements(text: str) -> str:
     pattern = r"""
     (?im)                                   # case-insensitive + multiline
     ^\s*                                    # start of line
-    (?:\#{1,6}\s*|[\divxlc]+\.\s*)?        # optional markdown # or numbering/roman numeral
-    (?:                                     # match any of the acknowledgement variants
+    (?:\#{1,6}\s*|[\divxlc]+\.\s*)?        # optional markdown or numbering/roman numeral
+
+    (?:                                     # ALL variants
         Acknowledg(?:e)?ments? |
         Special\s+Acknowledg(?:e)?ments? |
-        Acknowledg(?:e)?ments?\s+and\s+Thanks
+        Acknowledg(?:e)?ments?\s*(?:and\s*Thanks)? |
+        ACKNOWLEDGMENT(?:S)? |
+        ACKNOWLEDGEMENTS?\s*(?:AND\s*THANKS)? |
+        ACKNOWLEDGMENTS?\s*(?:AND\s*THANKS)?
     )
+
     \s*\n                                   # end of heading line
     .*?                                     # section content (non-greedy)
-    (?=^\s*(?:\#{1,6}\s*|[\divxlc]+\.\s*)|\Z)  # stop at next heading or end of text
+
+    (?=^\s*(?:\#{1,6}\s*|[\divxlc]+\.\s*)|\Z)  # stop at next heading or end
     """
 
     return re.sub(pattern, "\n", text, flags=re.DOTALL | re.VERBOSE)
 
+import re
+
 def remove_front_matter(text: str) -> str:
     """
-    Removes Preface, Foreword, Dedication, Acknowledgements,
-    and Conclusion sections wherever they appear in the document.
-    Works with markdown headings and numbered headings.
+    Removes all front matter sections anywhere in the document:
+    - Preface
+    - Foreword
+    - Dedication
+    - Acknowledgements / Acknowledgments
+    - Conclusion(s)
+    Works with:
+    - Markdown headings (#, ##, ###)
+    - Numbered headings (1., IV., etc.)
+    - OCR noisy spacing
     """
 
     pattern = r"""
-    \n\s*                # new line
-    \#*\s*               # optional markdown #
-    \d*\.?\s*            # optional number like '5.' or '6'
-    (Preface|Foreword|Dedication|Acknowledg(e)?ments?|Conclusion(s)?) 
-    \s*\n                # end of heading
-    .*?                  # section content
-    (?=\n\s*\#*\s*\d*\.?\s*[A-Z][^\n]{0,80}\n|\Z)  # stop at next heading
+    (?ims)                              # ignore case + multiline + dotall
+
+    ^\s*                                # line start
+
+    (?:\#{1,6}\s*|[\divxlc]+\.\s*)      # REQUIRED: heading markers (# or numbering)
+
+    \s*                                 # optional spacing
+
+    (                                   # FRONT MATTER KEYWORDS
+        PREFACE |
+        FOREWORD |
+        DEDICATION |
+        ACKNOWLEDG(?:E)?MENTS? |
+        ACKNOWLEDGMENTS? |
+        ACKNOWLEDGEMENTS? |
+        ACKNOWLEDGEMENTS?\s*AND\s*THANKS |
+        ACKNOWLEDGMENTS?\s*AND\s*THANKS |
+        CONCLUSION(?:S)?
+    )
+
+    [^\n]*                              # allow extra words like "IN ENGLISH"
+
+    \n                                  # end of heading line
+
+    .*?                                 # section body
+
+    (?=                                 # stop at next real heading OR end
+        ^\s*(?:\#{1,6}\s*|[\divxlc]+\.\s*)\w |
+        \Z
+    )
     """
 
-    return re.sub(pattern, "\n", text, flags=re.IGNORECASE | re.DOTALL | re.VERBOSE)
+    return re.sub(pattern, "\n", text, flags=re.VERBOSE)
 
+
+import re
 
 def remove_authors_contributors(text: str) -> str:
     """
-    Removes author and contributor sections robustly.
-    Matches lines starting with By:, Author(s):, Contributors:, and all their following lines
-    until the next heading or empty line.
+    Removes author and contributor sections in all formats:
+    - By / Author(s) / Contributors
+    - Markdown headings (#, ##, ###)
+    - Numbered or roman numeral headings
+    - Multi-line blocks until next real heading
     """
-    patterns = [
-        r"\nBy:.*?(?=\n#|\n[A-Z]|$)",  # everything after 'By:' until heading, uppercase line, or end
-        r"\nAuthors?:.*?(?=\n#|\n[A-Z]|$)",
-        r"\nContributors?:.*?(?=\n#|\n[A-Z]|$)"
+
+    pattern = r"""
+    (?ims)                              # ignore case + multiline + dotall
+
+    ^\s*                                # start of line
+
+    (?:\#{1,6}\s*|[\divxlc]+\.\s*)?     # optional markdown or numbering
+
+    (                                   # MAIN LABELS
+        BY |
+        AUTHOR(?:S)? |
+        AUTHOR\(S\) |
+        CONTRIBUTORS? |
+        WRITTEN\s+BY |
+        COMPILED\s+BY |
+        EDITED\s+BY
+    )
+
+    \s*:?\s*                            # optional colon
+
+    .*?                                 # content (names, affiliations, etc.)
+
+    (?=                                 # stop at next section
+        ^\s*(?:\#{1,6}\s*|[\divxlc]+\.\s*)\w |
+        \Z
+    )
+    """
+
+    text = re.sub(pattern, "\n", text, flags=re.VERBOSE)
+
+    # 🔥 Extra cleanup for standalone OCR lines like:
+    # "By John Smith", "Authors John + Jane"
+    extra_patterns = [
+        r"(?im)^\s*by\s+[A-Z].*$",
+        r"(?im)^\s*authors?\s+[A-Z].*$",
+        r"(?im)^\s*contributors?\s+[A-Z].*$",
     ]
-    for pattern in patterns:
-        text = re.sub(pattern, "\n", text, flags=re.IGNORECASE | re.DOTALL)
+
+    for p in extra_patterns:
+        text = re.sub(p, "", text)
 
     return text.strip()
-
-import re
 
 
 import re
@@ -236,30 +330,37 @@ from collections import Counter
 def remove_footnotes(text: str) -> str:
     lines = text.splitlines()
 
-    # Count frequency of each line (to detect repeated headers/footers)
     line_counts = Counter(line.strip() for line in lines if line.strip())
 
     cleaned_lines = []
-    total_lines = len(lines)
 
-    for i, line in enumerate(lines):
+    for line in lines:
         stripped = line.strip()
-
-        # Skip empty lines
         if not stripped:
             continue
 
-        # 1. Remove lines that repeat frequently (likely headers/footers)
-        if line_counts[stripped] > 2:
+        # 1. repeated headers/footers (safer threshold)
+        if line_counts[stripped] > 3 and len(stripped) < 80:
             continue
 
-        # 2. Remove lines that are just numbers (page numbers)
+        # 2. page numbers
         if re.fullmatch(r"\d+", stripped):
             continue
 
-        # 3. Remove short lines at the bottom of pages (likely footers)
-        # Heuristic: short + near end of a block
-        if len(stripped) < 50 and re.search(r"\d$", stripped):
+        # 3. page patterns like "Page 12", "Page 12 of 50"
+        if re.search(r"(?i)^page\s*\d+(\s*of\s*\d+)?$", stripped):
+            continue
+
+        # 4. dashed page markers like "- 12 -"
+        if re.fullmatch(r"[-–—\s]*\d+[-–—\s]*", stripped):
+            continue
+
+        # 5. very short footer-like lines with numbers
+        if len(stripped) < 60 and re.search(r"\d{1,4}$", stripped):
+            continue
+
+        # 6. repeated separator lines
+        if re.fullmatch(r"[-_=]{3,}", stripped):
             continue
 
         cleaned_lines.append(line)
@@ -278,20 +379,30 @@ def remove_publications_section(text: str) -> str:
     return text
 
 
+import re
+
 def remove_references_section(text: str) -> str:
     """
-    Removes references, bibliography, works cited, etc.
-    Cuts everything from the reference title to the end of the document.
+    Removes unwanted sections (References, Bibliography, etc.)
+    and continues processing the rest of the document safely.
     """
 
-    pattern = r'(^|\n)\s*(#+\s*)?(\d+\.?\s*)?(References|Bibliography|Works\s*Cited|Literature\s*Cited)\s*[:\n].*'
+    pattern = r"""
+    (?is)                                   # case-insensitive, dot matches newline
 
-    match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+    ^\s*(?:\#*\s*|\d+\.?\s*)?               # optional heading
+    (References|Bibliography|Works\s+Cited|Literature\s+Cited)
+    \s*[:\n]+                              # end of heading
 
-    if match:
-        return text[:match.start()].strip()
+    .*?                                    # section content (non-greedy)
 
-    return text
+    (?=                                    # stop ONLY at real section headers
+        ^\s*(?:\#|\d+\.)\s+                # next section like "# Title" or "1. Title"
+        | \Z                               # or end of document
+    )
+    """
+
+    return re.sub(pattern, "\n", text, flags=re.VERBOSE)
 
 
 def remove_index_section(text: str) -> str:
@@ -309,12 +420,46 @@ def remove_index_section(text: str) -> str:
 
 import re
 
+import re
+
+def remove_conclusions(text: str) -> str:
+    """
+    Removes all conclusion sections in any format:
+    - Conclusion / Conclusions
+    - # Conclusion, ## CONCLUSIONS
+    - 1. Conclusion, IV. Conclusions
+    - OCR variations and mixed casing
+    """
+
+    pattern = r"""
+    (?ims)                              # ignore case + multiline + dotall
+
+    ^\s*                                # start of line
+
+    (?:\#{1,6}\s*|[\divxlc]+\.\s*)?     # optional markdown or numbering
+
+    CONCLUSION(?:S)?                    # main keyword
+
+    [^\n]*                              # allow extra words (e.g. "AND FUTURE WORK")
+
+    \n                                  # end heading line
+
+    .*?                                 # section content (non-greedy)
+
+    (?=                                 # stop at next real section
+        ^\s*(?:\#{1,6}\s*|[\divxlc]+\.\s*)\w |
+        \Z
+    )
+    """
+
+    return re.sub(pattern, "\n", text, flags=re.VERBOSE)
+
 def remove_list_of_entries(text: str) -> str:
     """Removes list sections such as List of Entries, Abbreviations, Figures, Tables, and Illustrations."""
 
     patterns = [
         # Numbered headings (1., iv., etc.)
-        r"\n(?:[ivxlcdmIVXLCDM]+|\d+)\.?\s*List of (Entries|Abbreviations|Figures|Tables|Illustrations).*?(?=\n#+|\Z)",
+        # r"\n(?:[ivxlcdmIVXLCDM]+|\d+)\.?\s*List of (Entries|Abbreviations|Figures|Tables|Illustrations).*?(?=\n#+|\Z)",
 
         # Markdown headings with optional numbering
         r"\n#+\s*\d*\.?\s*List of (Entries|Abbreviations|Figures|Tables|Illustrations).*?(?=\n#+|\Z)",
@@ -332,35 +477,143 @@ def remove_list_of_entries(text: str) -> str:
 
     return text
 
-def remove_list_of_images_maps(text: str) -> str:
-    """Removes lists of images or maps in markdown."""
-    patterns = [
-        r"\n#+\s*List of Images.*?(?=\n#+|\Z)",
-        r"\nList of Images.*?(?=\n[A-Z][^\n]{0,80}\n|\Z)",
-        r"\n#+\s*List of Maps.*?(?=\n#+|\Z)",
-        r"\nList of Maps.*?(?=\n[A-Z][^\n]{0,80}\n|\Z)"
+import re
+
+def remove_list_of_items(text: str) -> str:
+    """
+    Removes all 'List of ...' sections from OCR/markdown documents:
+    - List of Images
+    - List of Maps
+    - List of Tables
+    - List of Figures
+    - List of Abbreviations
+    - List of Symbols
+    - List of Appendices
+    - Any similar list sections
+    """
+
+    # -----------------------------------
+    # 1. FULL "LIST OF X" SECTION REMOVAL
+    # -----------------------------------
+    pattern = r"""
+    (?ims)
+
+    ^\s*
+
+    (?:\#{1,6}\s*|[\divxlc]+\.\s*)?     # markdown (#) or numbering (1., IV.)
+
+    LIST\s+OF\s+
+
+    [A-Z][A-Za-z\s/&()\-]*             # type of list (Images, Tables, etc.)
+
+    \s*\n
+
+    .*?
+
+    (?=^\s*(?:\#{1,6}\s*|[\divxlc]+\.\s*)\w|\Z)
+    """
+
+    text = re.sub(pattern, "\n", text, flags=re.VERBOSE)
+
+    # -----------------------------------
+    # 2. OCR DOTTED LIST ENTRIES CLEANER
+    # -----------------------------------
+    dotted_patterns = [
+        # FIGURE 1......12
+        r"(?m)^\s*[A-Z][A-Za-z0-9\s/&(),'\-]*\.{2,}\s*\d+\s*$",
+
+        # TABLE 3.2......45 or MAP OF AFRICA......10
+        r"(?m)^\s*(FIGURE|TABLE|MAP|IMAGE|ILLUSTRATION)\s*[\w\.]*\.{2,}\s*\d+\s*$",
+
+        # Generic dotted index lines
+        r"(?m)^[A-Za-z0-9\s/&(),'\-]+\.{2,}\d+\s*$"
     ]
-    for pattern in patterns:
-        text = re.sub(pattern, "\n", text, flags=re.IGNORECASE | re.DOTALL)
+
+    for p in dotted_patterns:
+        text = re.sub(p, "", text, flags=re.IGNORECASE)
+
     return text
+
+import re
 
 import re
 
 def remove_unwanted_sections(text: str) -> str:
     """
-    Removes specific sections like Abbreviations, Tables, Figures, Notes, and Conclusions.
+    Removes unwanted sections like:
+    - Abbreviations
+    - Tables
+    - Figures
+    - Notes
+    - Conclusions
+
+    Works with:
+    - Markdown headings (#, ##, ###)
+    - Numbered headings (1., 2., IV., vi.)
+    - OCR variations (ALL CAPS, spacing issues)
+    - List-style sections (List of Tables, etc.)
     """
 
     patterns = [
-        r"\n#+\s*Abbreviations and conventional signs.*?(?=\n#+|\Z)",
-        r"\n#+\s*Tables.*?(?=\n#+|\Z)",
-        r"\n#+\s*Figures.*?(?=\n#+|\Z)",
-        r"\n#+\s*Notes.*?(?=\n#+|\Z)",
-        r"\n#+\s*CONCLUSIONS.*?(?=\n#+|\Z)"
+
+        # -----------------------------------
+        # ABBREVIATIONS
+        # -----------------------------------
+        r"""
+        (?ims)
+        ^\s*
+        (?:\#{1,6}\s*|\d+\.?\s*|[\divxlc]+\.\s*)?
+        ABBREVIATIONS?(?:\s+AND\s+CONVENTIONAL\s+SIGNS|S?\s+AND\s+SYMBOLS?)?
+        .*?(?=^\s*(?:\#{1,6}\s*|\d+\.|\w+\.|\Z))
+        """,
+
+        # -----------------------------------
+        # TABLES (all forms)
+        # -----------------------------------
+        r"""
+        (?ims)
+        ^\s*
+        (?:\#{1,6}\s*|\d+\.?\s*|[\divxlc]+\.\s*)?
+        (TABLES?|LIST\s+OF\s+TABLES?|TABLE\s+OF\s+FIGURES?)
+        .*?(?=^\s*(?:\#{1,6}\s*|\d+\.|\w+\.|\Z))
+        """,
+
+        # -----------------------------------
+        # FIGURES (all forms)
+        # -----------------------------------
+        r"""
+        (?ims)
+        ^\s*
+        (?:\#{1,6}\s*|\d+\.?\s*|[\divxlc]+\.\s*)?
+        (FIGURES?|LIST\s+OF\s+FIGURES?|FIGURE\s+LIST)
+        .*?(?=^\s*(?:\#{1,6}\s*|\d+\.|\w+\.|\Z))
+        """,
+
+        # -----------------------------------
+        # NOTES
+        # -----------------------------------
+        r"""
+        (?ims)
+        ^\s*
+        (?:\#{1,6}\s*|\d+\.?\s*|[\divxlc]+\.\s*)?
+        (NOTES?|GENERAL\s+NOTES?)
+        .*?(?=^\s*(?:\#{1,6}\s*|\d+\.|\w+\.|\Z))
+        """,
+
+        # -----------------------------------
+        # CONCLUSIONS
+        # -----------------------------------
+        r"""
+        (?ims)
+        ^\s*
+        (?:\#{1,6}\s*|\d+\.?\s*|[\divxlc]+\.\s*)?
+        (CONCLUSIONS?|CONCLUSION(?:\s+AND\s+RECOMMENDATIONS)?)
+        .*?(?=^\s*(?:\#{1,6}\s*|\d+\.|\w+\.|\Z))
+        """
     ]
 
     for pattern in patterns:
-        text = re.sub(pattern, "", text, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(pattern, "\n", text, flags=re.VERBOSE)
 
     return text.strip()
 
@@ -458,6 +711,16 @@ def clean_markdown_pipeline(text: str) -> str:
     text = remove_index_section(text)
     text = remove_list_of_entries(text)
     text = remove_alphabetical_entries(text)
-    text = remove_list_of_images_maps(text)
+    text = remove_list_of_items(text)
+    text =  remove_conclusions(text)
 
     return text.strip()
+
+
+
+
+
+
+
+
+
